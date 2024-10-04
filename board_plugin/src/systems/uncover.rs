@@ -44,7 +44,7 @@ pub fn uncover_tiles(
                 #[cfg(feature = "debug")]
                 info!("Tried to uncover an already uncovered tile")
             },
-            Some(e) => {
+            Some(_e) => {
                 #[cfg(feature = "debug")]
                 info!("Uncovered tile {} (entity: {:?})",coordinates, e)
             },

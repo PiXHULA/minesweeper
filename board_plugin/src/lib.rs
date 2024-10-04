@@ -6,63 +6,91 @@ mod events;
 
 
 use std::collections::HashMap;
+use std::default::{Default};
 use bevy::color::palettes::tailwind;
-use crate::components::{Coordinates, Uncover};
+use crate::components::{Coordinates, Uncover, PauseCover};
 use crate::resources::tile::Tile;
 use crate::resources::{BoardPosition, TileSize};
 use bevy::prelude::*;
+use bevy::state::state::FreelyMutableState;
 use resources::tile_map::TileMap;
 use resources::BoardOptions;
 use resources::Board;
 use crate::bounds::Bounds2;
 use crate::events::TileTriggerEvent;
 
-pub struct BoardPlugin;
+/// White box
+const BACKGROUND_Z: f32 = 0.0;
+/// Tiles - boxed above background
+const TILE_Z: f32 = 1.0;
+/// Count of neighors bombs, bomb, etc.
+const TILE_INFO_Z: f32 = 2.0;
+/// Box above tile which is still not uncover by player
+const TILE_COVER_Z: f32 = 3.0;
+/// Pause box
+const PAUSE_COVER_Z: f32 = 100.0;
 
-impl BoardPlugin {
+pub struct BoardPlugin<T>
+where
+    T: FreelyMutableState,
+{
+    pub game_state: T,
+    pub pause_state: T,
+}
+
+impl<T: FreelyMutableState> Plugin for BoardPlugin<T> {
+    fn build(&self, app: &mut App) {
+        app
+            .add_systems(OnEnter(self.game_state.clone()), Self::create_board)
+            .add_systems(OnExit(self.game_state.clone()), Self::on_exit_log)
+            .add_systems(
+                Update,
+                (
+                    systems::input::input_handling,
+                    systems::uncover::trigger_event_handler,
+                    systems::uncover::uncover_tiles,
+                    Self::recreate_board,
+                    Self::pause,
+                ).run_if(in_state(self.game_state.clone())))
+            .add_systems(
+                Update,
+                (
+                    Self::unpause
+                ).run_if(in_state(self.pause_state.clone())))
+            .add_event::<TileTriggerEvent>();
+
+        info!("Loaded Board Plugin");
+    }
+}
+
+impl<T: FreelyMutableState> BoardPlugin<T> {
     //System to generate the complete board
-    fn create_board(
+    pub fn create_board(
         mut commands: Commands,
-        board_options: Option<Res<BoardOptions>>,
+        board_options: Res<BoardOptions<T>>,
+        board_option: Option<Res<Board>>,
         asset_server: Res<AssetServer>,
     ) {
+        if board_option.is_some() {
+            return;
+        }
+
         //Load assets
         let font: Handle<Font> = asset_server.load("fonts/pixeled.ttf");
         let bomb_image: Handle<Image> = asset_server.load("sprites/bomb.png");
 
-        let options = match board_options {
-            None => BoardOptions::default(),
-            Some(o) => o.clone(),
-        };
+        let options = board_options.clone();
 
-        let tile_size = match options.tile_size {
-            TileSize::Fixed(size) => size,
-            TileSize::Adaptive { .. } => panic!(
-                "Not supported in this commit due to WindowDescriptor is not available as resource"
-            ),
-        };
+        let tile_size = options.tile_size_px();
 
+        let mut tile_map = TileMap::empty(options.map_size.columns, options.map_size.rows);
 
-        let mut tile_map = TileMap::empty(options.map_size.0, options.map_size.1);
+        let board_size = options.board_size();
 
-        let board_size = Vec2::new(
-            tile_map.width() as f32 * tile_size,
-            tile_map.height() as f32 * tile_size,
-        );
         #[cfg(feature = "debug")]
         info!("board_size: {}", &board_size);
 
-        // We define the board anchor position (bottom left)
-        let board_position = match options.position {
-            BoardPosition::Centered { offset } => {
-                Vec3 {
-                    x: -(board_size.x / 2.0),
-                    y: -(board_size.y / 2.0),
-                    z: 0.0,
-                } + offset
-            }
-            BoardPosition::Custom(p) => p,
-        };
+        let board_position = options.board_position_px(BACKGROUND_Z);
 
         tile_map.set_bombs(options.bomb_count);
         #[cfg(feature = "debug")]
@@ -70,10 +98,10 @@ impl BoardPlugin {
 
         let mut covered_tiles =
             HashMap::with_capacity((tile_map.width() * tile_map.height()).into());
-        
+
         let mut safe_start: Option<Entity> = None;
-        
-        commands
+
+        let board_entity = commands
             .spawn((
                 Name::new("Board"),
                 SpatialBundle {
@@ -91,9 +119,9 @@ impl BoardPlugin {
                             ..Default::default()
                         },
                         transform: Transform::from_xyz(
-                            board_size.x / 2.,
-                            board_size.y / 2.,
-                            0.,
+                            board_size.x / 2.0,
+                            board_size.y / 2.0,
+                            BACKGROUND_Z,
                         ),
                         ..Default::default()
                     })
@@ -113,7 +141,9 @@ impl BoardPlugin {
                     &mut safe_start,
                 );
                 //color: Color::srgba(0.2, 0.2, 0.2, 1.0),
-            });
+            })
+            .id();
+
         if options.safe_start {
             if let Some(entity) = safe_start {
                 commands.entity(entity).insert(Uncover);
@@ -128,6 +158,7 @@ impl BoardPlugin {
             },
             tile_size,
             covered_tiles,
+            entity: board_entity,
         });
     }
     fn spawn_tiles(
@@ -143,7 +174,7 @@ impl BoardPlugin {
         safe_start_entity: &mut Option<Entity>,
     ) {
         let tile_real_size = tile_size - tile_padding;
-        let sprites_size =  Some(Vec2::splat(tile_real_size));
+        let sprites_size = Some(Vec2::splat(tile_real_size));
 
         for (y, line) in tile_map.iter().enumerate() {
             for (x, tile) in line.iter().enumerate() {
@@ -164,7 +195,7 @@ impl BoardPlugin {
                     transform: Transform::from_xyz(
                         (x as f32 * tile_size) + (tile_size / 2.0),
                         (y as f32 * tile_size) + (tile_size / 2.0),
-                        1.0,
+                        TILE_Z,
                     ),
                     ..Default::default()
                 });
@@ -181,7 +212,9 @@ impl BoardPlugin {
                                 color: covered_tile_color,
                                 ..Default::default()
                             },
-                            transform: Transform::from_xyz(0.0, 0.0, 2.0),
+                            transform: Transform::from_xyz(0.0, 0.0, TILE_COVER_Z),
+                            //TODO: FORTSÄTTH HÄR
+                            // https://github.com/leonidv/bevy-minesweeper-tutorial/commit/6229aca4282ce473f38bcb3193c40a2bd33e520a#diff-411126a4d292d9529da7e23553aa1015d93ac7014e9565bdb7de1ef1e78cc37b
                             ..Default::default()
                         })
                         .insert(Name::new("Tile Cover"))
@@ -201,7 +234,7 @@ impl BoardPlugin {
                                     custom_size: sprites_size,
                                     ..Default::default()
                                 },
-                                transform: Transform::from_xyz(0.0, 0.0, 1.0),
+                                transform: Transform::from_xyz(0.0, 0.0, TILE_INFO_Z),
                                 texture: bomb_image.clone(),
                                 ..Default::default()
                             });
@@ -241,31 +274,88 @@ impl BoardPlugin {
             color,
         };
 
+        //TODO: Check how to center text
         let bomb_count_text = Text::from_section(count.to_string(), style).with_justify(JustifyText::Center);
 
         Text2dBundle {
             text: bomb_count_text,
-            transform: Transform::from_xyz(0.0, 0.0, 1.0),
+            transform: Transform::from_xyz(0.0, 0.0, TILE_INFO_Z),
             ..Default::default()
         }
     }
-}
 
-impl Plugin for BoardPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(Startup, Self::create_board)
-           .add_systems(Update, systems::input::input_handling)
-           .add_systems(Update, systems::uncover::trigger_event_handler)
-           .add_systems(Update, systems::uncover::uncover_tiles)
-           .add_event::<TileTriggerEvent>();
-        info!("Loaded Board Plugin");
-        // #[cfg(feature = "debug")]
-        // {
-        //     // registering custom component to be able to edit it in inspector
-        //     app.register_inspectable::<Coordinates>();
-        //     app.register_inspectable::<BombNeighbor>();
-        //     app.register_inspectable::<Bomb>();
-        //     app.register_inspectable::<Uncover>();
-        // }
+    fn recreate_board(
+        mut commands: Commands,
+        keys: Res<ButtonInput<KeyCode>>,
+        board: Res<Board>,
+        asset_server: Res<AssetServer>,
+        board_options: Res<BoardOptions<T>>,
+    ) {
+        if keys.just_released(KeyCode::KeyG) {
+            info!("G is released");
+            commands.entity(board.entity).despawn_recursive();
+            BoardPlugin::create_board(commands, board_options, None, asset_server)
+        }
+    }
+
+    fn pause(
+        mut commands: Commands,
+        keys: Res<ButtonInput<KeyCode>>,
+        mut next_state: ResMut<NextState<T>>,
+        board_options: Res<BoardOptions<T>>,
+        asset_server: Res<AssetServer>,
+    ) {
+        if keys.just_released(KeyCode::KeyP) {
+            next_state.set(board_options.pause_state.clone());
+
+            let font: Handle<Font> = asset_server.load("fonts/neuropol_x_rg.otf");
+            let text_style = TextStyle {
+                font,
+                font_size: board_options.tile_size_px(),
+                color: Color::from(tailwind::YELLOW_200),
+            };
+            let text = Text::from_section("Paused! Press P to continue", text_style)
+                .with_justify(JustifyText::Center);
+
+            let board_size = board_options.board_size();
+            commands
+                .spawn(SpriteBundle {
+                    sprite: Sprite {
+                        color: Color::from(tailwind::TEAL_300),
+                        custom_size: Some(board_size),
+                        ..Default::default()
+                    },
+                    transform: Transform::from_xyz(0.0, 0.0, PAUSE_COVER_Z),
+                    ..Default::default()
+                })
+                .insert(Name::new("Pause cover"))
+                .insert(PauseCover)
+                .with_children(|parent| {
+                    parent.spawn(Text2dBundle {
+                        text,
+                        transform: Transform::from_xyz(0.0, 0.0, PAUSE_COVER_Z + 1.0),
+                        ..Default::default()
+                    });
+                });
+        }
+    }
+
+    fn unpause(
+        mut commands: Commands,
+        keys: Res<ButtonInput<KeyCode>>,
+        mut next_state: ResMut<NextState<T>>,
+        board_options: Res<BoardOptions<T>>,
+        pause_cover_query: Query<Entity, With<PauseCover>>,
+    ) {
+        if keys.just_released(KeyCode::KeyP) {
+            let x: Entity = pause_cover_query.single();
+            commands.entity(x).despawn_recursive();
+            next_state.set(board_options.game_state.clone())
+        }
+    }
+
+    fn on_exit_log() {
+        info!("exit from state")
     }
 }
+
