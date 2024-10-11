@@ -16,7 +16,7 @@ use resources::tile_map::TileMap;
 use resources::BoardOptions;
 use resources::Board;
 use crate::bounds::Bounds2;
-use crate::events::TileTriggerEvent;
+use crate::events::{BoardCompletedEvent, BombExplosionEvent, TileMarkEvent, TileTriggerEvent};
 use crate::resources::BoardAssets;
 
 /// White box
@@ -50,6 +50,7 @@ impl<T: FreelyMutableState> Plugin for BoardPlugin<T> {
                     systems::input::input_handling,
                     systems::uncover::trigger_event_handler,
                     systems::uncover::uncover_tiles,
+                    systems::mark::mark_tiles,
                     Self::recreate_board,
                     Self::pause,
                 ).run_if(in_state(self.game_state.clone())))
@@ -58,7 +59,10 @@ impl<T: FreelyMutableState> Plugin for BoardPlugin<T> {
                 (
                     Self::unpause
                 ).run_if(in_state(self.pause_state.clone())))
-            .add_event::<TileTriggerEvent>();
+            .add_event::<TileTriggerEvent>()
+            .add_event::<TileMarkEvent>()
+            .add_event::<BombExplosionEvent>()
+            .add_event::<BoardCompletedEvent>();
 
         info!("Loaded Board Plugin");
     }
@@ -154,6 +158,7 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
             },
             tile_size,
             covered_tiles,
+            marked_tiles: Vec::new(),
             entity: board_entity,
         });
     }
@@ -306,7 +311,7 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
             commands
                 .spawn(SpriteBundle {
                     sprite: Sprite {
-                        color: Color::from([tailwind::TEAL_300, 0.1]),
+                        color: Color::from(tailwind::TEAL_300),
                         custom_size: Some(board_size),
                         ..Default::default()
                     },

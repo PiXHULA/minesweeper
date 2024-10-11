@@ -54,9 +54,9 @@ fn setup_camera(mut commands: Commands) {
 fn setup_board(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(BoardAssets {
         label: "Default".to_string(),
-        board_material: SpriteMaterial::color(Color::from(tailwind::STONE_50)),
+        board_material: SpriteMaterial::color(Color::from(tailwind::NEUTRAL_50)),
         tile_material: SpriteMaterial::color(Color::from(tailwind::STONE_400)),
-        covered_tile_material: SpriteMaterial::color(Color::from(tailwind::STONE_800)),
+        covered_tile_material: SpriteMaterial::color(Color::from(tailwind::STONE_300)),
         bomb_counter_font: asset_server.load("fonts/pixeled.ttf"),
         bomb_counter_colors: BoardAssets::default_colors(),
         flag_material: SpriteMaterial::texture(&asset_server.load("sprites/flag.png")),
@@ -68,7 +68,7 @@ fn setup_board(mut commands: Commands, asset_server: Res<AssetServer>) {
         bomb_count: 60,
         position: board_plugin::resources::BoardPosition::Centered { offset: Vec3::ZERO },
         tile_size: Fixed(35.0),
-        tile_padding: 3.0,
+        tile_padding: 1.5,
         safe_start: true,
         game_state: AppState::InGame,
         pause_state: AppState::Pause,

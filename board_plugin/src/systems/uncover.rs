@@ -1,7 +1,7 @@
 use bevy::log::*;
-use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, EventReader, Parent, Query, Res, ResMut, With};
+use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, EventReader, EventWriter, Parent, Query, Res, ResMut, With};
 use crate::components::{Bomb, BombNeighbor, Coordinates, Uncover};
-use crate::events::TileTriggerEvent;
+use crate::events::{BoardCompletedEvent, BombExplosionEvent, TileTriggerEvent};
 use crate::resources::Board;
 
 pub fn trigger_event_handler(
@@ -25,6 +25,8 @@ pub fn uncover_tiles(
     mut board: ResMut<Board>,
     children: Query<(Entity, &Parent), With<Uncover>>,
     parents: Query<(&Coordinates, Option<&Bomb>, Option<&BombNeighbor>)>,
+    mut board_completed_event_writer: EventWriter<BoardCompletedEvent>,
+    mut bomb_explosion_event_writer: EventWriter<BombExplosionEvent>,
 ) {
     // Iterate through tile covers to uncover
     for (entity, parent) in children.iter() {
@@ -49,11 +51,17 @@ pub fn uncover_tiles(
                 info!("Uncovered tile {} (entity: {:?})",coordinates, _e)
             },
         }
+        
+        if board.is_completed() {
+            #[cfg(feature = "debug")]
+            info!("Board completed!");
+            board_completed_event_writer.send(BoardCompletedEvent);
+        }
 
         if bomb.is_some() {
             #[cfg(feature = "debug")]
             info!("Boom!");
-            //TODO: Add explosion event
+            bomb_explosion_event_writer.send(BombExplosionEvent);
         }
         // if the tile is empty (no bomb near tile)..
         else if bomb_counter.is_none() {
