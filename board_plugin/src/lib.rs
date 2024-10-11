@@ -10,7 +10,6 @@ use std::default::{Default};
 use bevy::color::palettes::tailwind;
 use crate::components::{Coordinates, Uncover, PauseCover};
 use crate::resources::tile::Tile;
-use crate::resources::{BoardPosition, TileSize};
 use bevy::prelude::*;
 use bevy::state::state::FreelyMutableState;
 use resources::tile_map::TileMap;
@@ -18,6 +17,7 @@ use resources::BoardOptions;
 use resources::Board;
 use crate::bounds::Bounds2;
 use crate::events::TileTriggerEvent;
+use crate::resources::BoardAssets;
 
 /// White box
 const BACKGROUND_Z: f32 = 0.0;
@@ -40,6 +40,7 @@ where
 
 impl<T: FreelyMutableState> Plugin for BoardPlugin<T> {
     fn build(&self, app: &mut App) {
+        
         app
             .add_systems(OnEnter(self.game_state.clone()), Self::create_board)
             .add_systems(OnExit(self.game_state.clone()), Self::on_exit_log)
@@ -69,15 +70,15 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
         mut commands: Commands,
         board_options: Res<BoardOptions<T>>,
         board_option: Option<Res<Board>>,
-        asset_server: Res<AssetServer>,
+        board_assets: Res<BoardAssets>,
     ) {
         if board_option.is_some() {
             return;
         }
 
-        //Load assets
-        let font: Handle<Font> = asset_server.load("fonts/pixeled.ttf");
-        let bomb_image: Handle<Image> = asset_server.load("sprites/bomb.png");
+        // //Load assets
+        // let font: Handle<Font> = asset_server.load("fonts/pixeled.ttf");
+        // let bomb_image: Handle<Image> = asset_server.load("sprites/bomb.png");
 
         let options = board_options.clone();
 
@@ -113,11 +114,11 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
                 parent
                     .spawn(SpriteBundle {
                         sprite: Sprite {
-                            color: Color::from(tailwind::GRAY_50),
-                            // color: Color::srgba(0.9, 0.9, 0.9, 1.0),
+                            color: board_assets.board_material.color,
                             custom_size: Some(board_size),
                             ..Default::default()
                         },
+                        texture: board_assets.board_material.texture.clone(),
                         transform: Transform::from_xyz(
                             board_size.x / 2.0,
                             board_size.y / 2.0,
@@ -132,15 +133,10 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
                     &tile_map,
                     tile_size,
                     options.tile_padding,
-                    // Color::srgba(0.2, 0.2, 0.2, 1.0),
-                    Color::from(tailwind::GRAY_400),
-                    bomb_image,
-                    font,
-                    Color::from(tailwind::GRAY_900),
+                    &board_assets,
                     &mut covered_tiles,
                     &mut safe_start,
                 );
-                //color: Color::srgba(0.2, 0.2, 0.2, 1.0),
             })
             .id();
 
@@ -166,10 +162,7 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
         tile_map: &TileMap,
         tile_size: f32,
         tile_padding: f32,
-        background_color: Color,
-        bomb_image: Handle<Image>,
-        font: Handle<Font>,
-        covered_tile_color: Color,
+        board_assets: &BoardAssets,
         covered_tiles: &mut HashMap<Coordinates, Entity>,
         safe_start_entity: &mut Option<Entity>,
     ) {
@@ -188,10 +181,11 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
 
                 let mut commands = parent.spawn(SpriteBundle {
                     sprite: Sprite {
-                        color: background_color,
+                        color: board_assets.tile_material.color,
                         custom_size: Some(Vec2::splat(tile_size - tile_padding)),
                         ..Default::default()
                     },
+                    texture: board_assets.tile_material.texture.clone(),
                     transform: Transform::from_xyz(
                         (x as f32 * tile_size) + (tile_size / 2.0),
                         (y as f32 * tile_size) + (tile_size / 2.0),
@@ -209,12 +203,11 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
                         .spawn(SpriteBundle {
                             sprite: Sprite {
                                 custom_size: sprites_size,
-                                color: covered_tile_color,
+                                color: board_assets.covered_tile_material.color,
                                 ..Default::default()
                             },
+                            texture: board_assets.covered_tile_material.texture.clone(),
                             transform: Transform::from_xyz(0.0, 0.0, TILE_COVER_Z),
-                            //TODO: FORTSÄTTH HÄR
-                            // https://github.com/leonidv/bevy-minesweeper-tutorial/commit/6229aca4282ce473f38bcb3193c40a2bd33e520a#diff-411126a4d292d9529da7e23553aa1015d93ac7014e9565bdb7de1ef1e78cc37b
                             ..Default::default()
                         })
                         .insert(Name::new("Tile Cover"))
@@ -235,7 +228,7 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
                                     ..Default::default()
                                 },
                                 transform: Transform::from_xyz(0.0, 0.0, TILE_INFO_Z),
-                                texture: bomb_image.clone(),
+                                texture: board_assets.bomb_material.texture.clone(),
                                 ..Default::default()
                             });
                         });
@@ -245,7 +238,7 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
                         commands.with_children(|parent| {
                             parent.spawn(Self::bomb_count_text_bundle(
                                 *bombs_count,
-                                font.clone(),
+                                &board_assets,
                                 tile_size - tile_padding,
                             ));
                         });
@@ -256,20 +249,12 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
         }
     }
 
-    fn bomb_count_text_bundle(count: u8, font: Handle<Font>, font_size: f32) -> Text2dBundle {
+    fn bomb_count_text_bundle(count: u8, board_assets: &BoardAssets, font_size: f32) -> Text2dBundle {
         //Retrieve the text and the correct color
-        let color =
-            match count {
-                1 => Color::WHITE,
-                2 => Color::srgba(0.25, 0.9, 0.25, 1.0),  //limegreen
-                3 => Color::srgba(1., 1., 0., 1.0),       //yellow
-                4 => Color::srgba(1., 0.5, 0., 1.0),      //orange
-                5 => Color::srgba(1., 0.2, 0.15, 1.0),    //tomato
-                _ => Color::srgba(0.5, 0., 0.5, 1.0),     //purple
-            };
+        let color= board_assets.bomb_counter_color(count);
 
         let style = TextStyle {
-            font,
+            font: board_assets.bomb_counter_font.clone(),
             font_size,
             color,
         };
@@ -288,13 +273,13 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
         mut commands: Commands,
         keys: Res<ButtonInput<KeyCode>>,
         board: Res<Board>,
-        asset_server: Res<AssetServer>,
         board_options: Res<BoardOptions<T>>,
+        board_assets: Res<BoardAssets>,
     ) {
         if keys.just_released(KeyCode::KeyG) {
             info!("G is released");
             commands.entity(board.entity).despawn_recursive();
-            BoardPlugin::create_board(commands, board_options, None, asset_server)
+            BoardPlugin::create_board(commands, board_options, None, board_assets)
         }
     }
 
@@ -303,12 +288,12 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
         keys: Res<ButtonInput<KeyCode>>,
         mut next_state: ResMut<NextState<T>>,
         board_options: Res<BoardOptions<T>>,
-        asset_server: Res<AssetServer>,
+        board_assets: Res<BoardAssets>,
     ) {
         if keys.just_released(KeyCode::KeyP) {
             next_state.set(board_options.pause_state.clone());
 
-            let font: Handle<Font> = asset_server.load("fonts/neuropol_x_rg.otf");
+            let font: Handle<Font> = board_assets.menu_font.clone();
             let text_style = TextStyle {
                 font,
                 font_size: board_options.tile_size_px(),
@@ -321,7 +306,7 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
             commands
                 .spawn(SpriteBundle {
                     sprite: Sprite {
-                        color: Color::from(tailwind::TEAL_300),
+                        color: Color::from([tailwind::TEAL_300, 0.1]),
                         custom_size: Some(board_size),
                         ..Default::default()
                     },

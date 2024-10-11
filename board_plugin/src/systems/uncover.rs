@@ -1,4 +1,4 @@
-use bevy::log::{error, info};
+use bevy::log::*;
 use bevy::prelude::{Commands, DespawnRecursiveExt, Entity, EventReader, Parent, Query, Res, ResMut, With};
 use crate::components::{Bomb, BombNeighbor, Coordinates, Uncover};
 use crate::events::TileTriggerEvent;
@@ -46,7 +46,7 @@ pub fn uncover_tiles(
             },
             Some(_e) => {
                 #[cfg(feature = "debug")]
-                info!("Uncovered tile {} (entity: {:?})",coordinates, e)
+                info!("Uncovered tile {} (entity: {:?})",coordinates, _e)
             },
         }
 

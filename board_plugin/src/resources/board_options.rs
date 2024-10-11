@@ -1,6 +1,5 @@
 use bevy::{prelude::Vec3, ecs::system::Resource};
 use bevy::math::Vec2;
-use bevy::prelude::States;
 use bevy::state::state::FreelyMutableState;
 use serde::{Deserialize, Serialize};
 
