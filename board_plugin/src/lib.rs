@@ -8,7 +8,7 @@ mod events;
 use std::collections::HashMap;
 use std::default::{Default};
 use bevy::color::palettes::tailwind;
-use crate::components::{Coordinates, Uncover, PauseCover};
+use crate::components::{Coordinates, Uncover, PauseCover, GameOverCover};
 use crate::resources::tile::Tile;
 use bevy::prelude::*;
 use bevy::state::state::FreelyMutableState;
@@ -36,6 +36,7 @@ where
 {
     pub game_state: T,
     pub pause_state: T,
+    pub game_over_state: T,
 }
 
 impl<T: FreelyMutableState> Plugin for BoardPlugin<T> {
@@ -53,12 +54,18 @@ impl<T: FreelyMutableState> Plugin for BoardPlugin<T> {
                     systems::mark::mark_tiles,
                     Self::recreate_board,
                     Self::pause,
+                    Self::game_over,
                 ).run_if(in_state(self.game_state.clone())))
             .add_systems(
                 Update,
                 (
                     Self::unpause
                 ).run_if(in_state(self.pause_state.clone())))
+            .add_systems(
+                Update,
+                (
+                    Self::new_game
+                ).run_if(in_state(self.game_over_state.clone())))
             .add_event::<TileTriggerEvent>()
             .add_event::<TileMarkEvent>()
             .add_event::<BombExplosionEvent>()
@@ -79,10 +86,6 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
         if board_option.is_some() {
             return;
         }
-
-        // //Load assets
-        // let font: Handle<Font> = asset_server.load("fonts/pixeled.ttf");
-        // let bomb_image: Handle<Image> = asset_server.load("sprites/bomb.png");
 
         let options = board_options.clone();
 
@@ -344,6 +347,67 @@ impl<T: FreelyMutableState> BoardPlugin<T> {
         }
     }
 
+    fn new_game (
+        mut commands: Commands,
+        mut next_state: ResMut<NextState<T>>,
+        keys: Res<ButtonInput<KeyCode>>,
+        board: Res<Board>,
+        board_options: Res<BoardOptions<T>>,
+        board_assets: Res<BoardAssets>,
+        game_over_cover_query: Query<Entity, With<GameOverCover>>,
+    ) {
+        if keys.just_released(KeyCode::KeyN) {
+            info!("Starting a new game");
+            next_state.set(board_options.game_state.clone());
+            let x: Entity = game_over_cover_query.single();
+            commands.entity(x).despawn_recursive();
+            commands.entity(board.entity).despawn_recursive();
+            BoardPlugin::create_board(commands, board_options, None, board_assets)
+        }
+    }
+
+    fn game_over(
+        mut commands: Commands,
+        mut bomb_explosion_event: EventReader<BombExplosionEvent>,
+        mut next_state: ResMut<NextState<T>>,
+        board_options: Res<BoardOptions<T>>,
+        board_assets: Res<BoardAssets>,
+    ) {
+        for event in bomb_explosion_event.read() {
+            next_state.set(board_options.game_over_state.clone());
+
+            let font: Handle<Font> = board_assets.menu_font.clone();
+            let text_style = TextStyle {
+                font,
+                font_size: board_options.tile_size_px(),
+                color: Color::from(tailwind::RED_900),
+            };
+            let text = Text::from_section("Game Over! Press N for new game", text_style)
+                .with_justify(JustifyText::Center);
+
+            let board_size = board_options.board_size();
+            commands
+                .spawn(SpriteBundle {
+                    sprite: Sprite {
+                        color: Color::from(tailwind::STONE_950),
+                        custom_size: Some(board_size),
+                        ..Default::default()
+                    },
+                    transform: Transform::from_xyz(0.0, 0.0, PAUSE_COVER_Z),
+                    ..Default::default()
+                })
+                .insert(Name::new("Game Over cover"))
+                .insert(GameOverCover)
+                // .insert(PauseCover)
+                .with_children(|parent| {
+                    parent.spawn(Text2dBundle {
+                        text,
+                        transform: Transform::from_xyz(0.0, 0.0, PAUSE_COVER_Z + 1.0),
+                        ..Default::default()
+                    });
+                });
+        }
+    }
     fn on_exit_log() {
         info!("exit from state")
     }

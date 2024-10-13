@@ -39,10 +39,13 @@ fn main() {
     // https://bevyengine.org/learn/migration-guides/0-13-to-0-14/#onenter-state-schedules-now-run-before-startup-schedules
     .init_state::<AppState>()
     .add_systems(OnEnter(AppState::Setup), (setup_camera, setup_board))
-    .add_systems(Update, transition_to_in_game.run_if(in_state(AppState::Setup)))
+    .add_systems(Update, 
+                 transition_to_in_game
+                     .run_if(in_state(AppState::Setup)))
     .add_plugins(BoardPlugin {
         game_state: AppState::InGame,
         pause_state: AppState::Pause,
+        game_over_state: AppState::EndGame,
     })    
     .run();
 }
@@ -72,5 +75,6 @@ fn setup_board(mut commands: Commands, asset_server: Res<AssetServer>) {
         safe_start: true,
         game_state: AppState::InGame,
         pause_state: AppState::Pause,
+        game_over_state: AppState::EndGame,
     })
 }

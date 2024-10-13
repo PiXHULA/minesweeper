@@ -47,6 +47,8 @@ pub struct BoardOptions<T: FreelyMutableState> {
     pub game_state: T,
     //State with paused game
     pub pause_state: T,
+    //State with end game
+    pub game_over_state: T,
 }
 
 impl<T: FreelyMutableState> BoardOptions<T> {
